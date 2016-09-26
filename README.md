@@ -7,9 +7,11 @@ Design:
 - Handle disconnects and timeouts gracefully by reconnecting automatically
 
 Todo:
-- Download shoutcast server
 - Download C++ gstreamer examples (preferably streaming)
 
 Matching algorithms:
 - Seems to match number of floating values matching overall (order independent?)
 - Walk through the matching algorithm to make sure what we are doing is correct
+
+Other notes:
+- Use Icecast for the streaming
