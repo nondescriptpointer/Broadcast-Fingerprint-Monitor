@@ -7,4 +7,6 @@ class Streamer {
 
 	public:
 		Streamer(void);
+		~Streamer(void);
+		static gboolean bus_callback(GstBus *bus, GstMessage *message, gpointer data);
 };
