@@ -1,5 +1,6 @@
 #include "Streamer.h"
 #include <iostream>
+#include <cstring>
 
 // should I use the playbin and/or uridecodebin, appsink? should be in base plugins
 // autoaudiosink
@@ -14,6 +15,10 @@
   sink     = gst_element_factory_make ("autoaudiosink", "audio-output");
 
   need to convert it to floating point PCM at 11025Hz and mono
+
+  apsink in combination with the caps to specify the format
+
+  if the sample rate is 11025 we should have roughly 119070 samples collected
 */
 
 Streamer::Streamer(void){
@@ -22,12 +27,24 @@ Streamer::Streamer(void){
 
 	// playbin object
 	GstElement *uridecodebin = gst_element_factory_make("uridecodebin","uridecodebin");
-	g_object_set(G_OBJECT(uridecodebin), "uri", "http://mp3.streampower.be/radio1-high.mp3", NULL);
+	//g_object_set(G_OBJECT(uridecodebin), "uri", "http://mp3.streampower.be/radio1-high.mp3", NULL);
+	g_object_set(G_OBJECT(uridecodebin), "uri", "file:///home/ego/Downloads/safteyjingle.mp3", NULL);
 
 	// create an audio sink
 	GstElement *convert = gst_element_factory_make("audioconvert","audioconvert");
 	GstElement *resample = gst_element_factory_make("audioresample","audioresample");
-	GstElement *sink = gst_element_factory_make("autoaudiosink", "audio-output");
+	GstElement *sink = gst_element_factory_make("appsink", "appsink");
+	g_object_set(G_OBJECT(sink), "caps", gst_caps_new_simple("audio/x-raw",
+		"format",G_TYPE_STRING,"F32LE",
+		"rate",G_TYPE_INT,11025,
+		"channels",G_TYPE_INT,1,
+	NULL),NULL);
+	g_object_set(G_OBJECT(sink), "emit-signals", TRUE, NULL);
+
+	// listen for new buffer samples
+	int samples = 0;
+	std::cout << &samples << std::endl;
+	g_signal_connect(sink, "new-sample", G_CALLBACK(buffer_callback), &samples);
 	
 	// add elements to pipeline
 	gst_bin_add_many(GST_BIN(pipeline), uridecodebin, convert, resample, sink, NULL);
@@ -91,6 +108,47 @@ gboolean Streamer::bus_callback(GstBus *bus, GstMessage *message, gpointer data)
 	return TRUE;
 }
 
+// buffer callback
+GstFlowReturn Streamer::buffer_callback(GstElement *element, gpointer data){
+	g_print("Got a buffer sample\n");
+
+	GstSample *sample;
+	GstMapInfo map;
+	GstBuffer *buffer;
+	int *num_samples = static_cast<int*>(data);
+	std::cout << *num_samples << std::endl;
+	g_signal_emit_by_name(element, "pull-sample", &sample, NULL);
+	if(sample){
+		buffer = gst_sample_get_buffer(sample);
+		gst_buffer_map (buffer, &map, GST_MAP_READ);
+    	g_print("\n here size=%d\n",map.size);
+    	// cast our buffer to floats
+    	void *ptr = map.data;
+    	float *floats = static_cast<float*>(ptr);
+    	// increase number of samples
+    	*num_samples += map.size;
+
+    	// show floats
+    	std::cout << floats[0] << std::endl;
+    	std::cout << floats[1] << std::endl;
+    	std::cout << floats[2] << std::endl;
+    	std::cout << floats[3] << std::endl;
+    	/*
+    	
+    	items = static_cast<float>(map.data);*/
+    	/*std::cout << sizeof(float) << std::endl;
+    	float g;
+    	memcpy(&g, map.data, sizeof(float));
+    	std::cout << g << std::endl;*/
+    	//std::cout << float(map.data) << " " << float(map.data[1]) << std::endl;
+    	// TODO: these are not floats which is an issue
+	    gst_buffer_unmap (buffer,&map);
+	    gst_sample_unref(sample);
+	}
+
+	return GST_FLOW_OK;
+}
+
 // pad handling
 void Streamer::pad_callback(GstElement *element, GstPad *pad, gpointer data){
 	GstPad *sinkpad;
@@ -99,12 +157,12 @@ void Streamer::pad_callback(GstElement *element, GstPad *pad, gpointer data){
 	sinkpad = gst_element_get_static_pad(decoder,"sink");
 	gst_pad_link(pad, sinkpad);
 	gst_object_unref(sinkpad);
-
-	/*
-	gchar *name;
-	name = gst_pad_get_name(pad);
-	g_print("A new pad %s was created\n",name);
-	g_free(name);*/
-
-	// set up a new pad link for the newly created pad
 }
+
+/* 
+TODO:
+- try and convert it to a float* array with the size of the original divided by 4
+- try and feed it into echoprint codegen and retrieve the full signature
+- compare with the signature created by fastingest or similar tools
+
+*/

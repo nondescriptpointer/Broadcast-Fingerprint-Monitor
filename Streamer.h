@@ -10,4 +10,5 @@ class Streamer {
 		~Streamer(void);
 		static gboolean bus_callback(GstBus *bus, GstMessage *message, gpointer data);
 		static void pad_callback(GstElement *element, GstPad *pad, gpointer data);
+		static GstFlowReturn buffer_callback(GstElement *element, gpointer data);
 };
