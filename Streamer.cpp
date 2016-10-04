@@ -12,48 +12,41 @@
   decoder  = gst_element_factory_make ("vorbisdec",     "vorbis-decoder");
   conv     = gst_element_factory_make ("audioconvert",  "converter");
   sink     = gst_element_factory_make ("autoaudiosink", "audio-output");
+
+  need to convert it to floating point PCM at 11025Hz and mono
 */
 
 Streamer::Streamer(void){
 	// setup pipeline
-	GstElement *pipeline = gst_pipeline_new("my-pipeline");
+	GstElement *pipeline = gst_pipeline_new("radiopipeline");
+
+	// playbin object
+	GstElement *uridecodebin = gst_element_factory_make("uridecodebin","uridecodebin");
+	g_object_set(G_OBJECT(uridecodebin), "uri", "http://mp3.streampower.be/radio1-high.mp3", NULL);
+
+	// create an audio sink
+	GstElement *convert = gst_element_factory_make("audioconvert","audioconvert");
+	GstElement *resample = gst_element_factory_make("audioresample","audioresample");
+	GstElement *sink = gst_element_factory_make("autoaudiosink", "audio-output");
+	
+	// add elements to pipeline
+	gst_bin_add_many(GST_BIN(pipeline), uridecodebin, convert, resample, sink, NULL);
+
+	// link the conversion pipeline and sink already
+	if(!gst_element_link_many(convert, resample, sink, NULL)){
+		g_warning("Failed to link elements!");
+	}
+
+	// listen for newly created pads on the uridecodebin
+	g_signal_connect(uridecodebin, "pad-added", G_CALLBACK(pad_callback), convert);
 
 	// create a bus to listen to issues
 	GstBus *bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
 	guint bus_watch_id = gst_bus_add_watch(bus,bus_callback,NULL);
 	gst_object_unref(bus);
 
-	// create elements
-	GstElement *source, *filter, *sink;
-	source = gst_element_factory_make("fakesrc","source");
-	filter = gst_element_factory_make("identity","filter");
-	sink = gst_element_factory_make("fakesink","sink");
-
-	// add elements to the pipeline
-	gst_bin_add_many(GST_BIN(pipeline), source, filter, sink, NULL);
-
-	// link the elements
-	if(!gst_element_link_many(source,filter,sink,NULL)){
-		g_warning("Failed to link elements!");
-	}
-
 	// start playback
 	gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PLAYING);
-
-
-	// check if element exists
-	/*if(!element){
-		g_print("Failed to create element of type 'fakesrc'\n");
-	}*/
-
-	// get the name of the element
-	/*gchar *name;
-	g_object_get(G_OBJECT(element),"name",&name,NULL);
-	g_print("Name of the element is %s\n",name);
-	g_free(name);*/
-
-
-	//gst_object_unref(GST_OBJECT(element));
 };
 
 // cleanup streamer
@@ -70,20 +63,20 @@ gboolean Streamer::bus_callback(GstBus *bus, GstMessage *message, gpointer data)
 
 	switch (GST_MESSAGE_TYPE (message)){
 	    case GST_MESSAGE_ERROR: {
-	      GError *err;
-	      gchar *debug;
+			GError *err;
+			gchar *debug;
 
-	      gst_message_parse_error (message, &err, &debug);
-	      g_print ("Error: %s\n", err->message);
-	      g_error_free (err);
-	      g_free (debug);
-	      //g_main_loop_quit (loop);
-	      break;
+			gst_message_parse_error (message, &err, &debug);
+			g_print ("Error: %s\n", err->message);
+			g_error_free (err);
+			g_free (debug);
+			//g_main_loop_quit (loop);
+			break;
 	    }
 	    case GST_MESSAGE_EOS:
-	      /* end-of-stream */
-	      //g_main_loop_quit (loop);
-	      break;
+			/* end-of-stream */
+			//g_main_loop_quit (loop);
+			break;
 	    case GST_MESSAGE_STATE_CHANGED: {
 	    	GstState old_state, new_state;
 	    	gst_message_parse_state_changed(message, &old_state, &new_state, NULL);
@@ -96,4 +89,22 @@ gboolean Streamer::bus_callback(GstBus *bus, GstMessage *message, gpointer data)
 	}
 
 	return TRUE;
+}
+
+// pad handling
+void Streamer::pad_callback(GstElement *element, GstPad *pad, gpointer data){
+	GstPad *sinkpad;
+	GstElement *decoder = (GstElement *) data;
+
+	sinkpad = gst_element_get_static_pad(decoder,"sink");
+	gst_pad_link(pad, sinkpad);
+	gst_object_unref(sinkpad);
+
+	/*
+	gchar *name;
+	name = gst_pad_get_name(pad);
+	g_print("A new pad %s was created\n",name);
+	g_free(name);*/
+
+	// set up a new pad link for the newly created pad
 }

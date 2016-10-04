@@ -9,4 +9,5 @@ class Streamer {
 		Streamer(void);
 		~Streamer(void);
 		static gboolean bus_callback(GstBus *bus, GstMessage *message, gpointer data);
+		static void pad_callback(GstElement *element, GstPad *pad, gpointer data);
 };

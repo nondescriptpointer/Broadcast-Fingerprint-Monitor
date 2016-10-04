@@ -18,6 +18,7 @@ int main(int argc, char *argv[]){
 	else nano_string = "";
 	printf("GStreamer version %d.%d.%d %s\n", major, minor, micro, nano_string);
 
+	// set up the streamer
     Streamer* streamer = new Streamer;
 
     // main loop to keep our app active
