@@ -3,6 +3,7 @@
 #include <gst/gst.h>
 #include <stdio.h>
 #include <string>
+#include <sstream> 
 
 // main loop
 static GMainLoop *mainloop;
@@ -36,8 +37,18 @@ int main(int argc, char *argv[]){
     	mode = true;
     }
 
+    // convert rest to 
+    const char* command = "";
+    if(argc > 3){
+        std::stringstream ss;
+        for(int i = 3; i < argc; i++){
+            ss << argv[i] << " ";
+        }
+        command = ss.str().c_str();
+    }
+
     // set up the streamer
-    Streamer* streamer = new Streamer(argv[2],mainloop,mode);
+    Streamer* streamer = new Streamer(argv[2],mainloop,mode,command);
 
     // run main loop
     g_main_loop_run(mainloop);  

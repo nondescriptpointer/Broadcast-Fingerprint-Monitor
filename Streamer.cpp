@@ -12,10 +12,11 @@
 	// todo: find distance difference between the 2 files if needed
 */
 
-Streamer::Streamer(const char* url, GMainLoop *loop, bool mode){
+Streamer::Streamer(const char* url, GMainLoop *loop, bool mode, const char *cmd){
 	// ref to mainloop
 	mainloop = loop;
 	run_mode = mode;
+	command = cmd;
 
 	// read the file with the data
 	if(!run_mode){
@@ -194,12 +195,12 @@ GstFlowReturn Streamer::buffer_callback(GstElement *element, gpointer data){
     	// if in normal/radio mode
     	if(!streamer->run_mode){
     		// make the buffer smaller if it's too big
-    		if(streamer->samples.size() > buffersize){
-    			streamer->samples.erase(streamer->samples.begin(),streamer->samples.begin()+(streamer->samples.size()-buffersize));
+    		if(streamer->samples.size() > (uint)streamer->buffersize){
+    			streamer->samples.erase(streamer->samples.begin(),streamer->samples.begin()+(streamer->samples.size()-streamer->buffersize));
     		}
 
     		// run the check
-    		if(streamer->samples.size() == buffersize && streamer->samples_received >= updaterate){
+    		if(streamer->samples.size() == (uint)streamer->buffersize && streamer->samples_received >= streamer->updaterate){
     			streamer->samples_received = 0;
 
 	    		// copy the samples into an array
@@ -220,18 +221,31 @@ GstFlowReturn Streamer::buffer_callback(GstElement *element, gpointer data){
 						unique_matches += 1;
 					}
 				}
-				std::cout << "Matches: " << unique_matches << std::endl;
 
+				if(unique_matches > 50){
+					std::cout << "Got a match! " << unique_matches << std::endl;
+					// offset the received samples so we stop checking for a while
+					streamer->samples_received = -streamer->updaterate * 15;
+					// run command
+					FILE *in;
+					char buff[512];
+					if(!(in = popen(streamer->command, "r"))){
+						std::cerr << "Running command failed" << std::endl;
+						delete pCodegen;
+						delete data;
+					    gst_buffer_unmap(buffer,&map);
+					    gst_sample_unref(sample);
+						return GST_FLOW_OK;
+					}
+					while(fgets(buff, sizeof(buff), in)!=NULL){
+						std::cout << buff;
+					}
+					pclose(in);
+				}
 				delete pCodegen;
 				delete data;
     		}
     	}
-
-    	/*if(run_mode){
-	    	// copy our data into our temporary buffer
-	    	std::copy(floats, floats+(map.size/4), streamer->samples+streamer->samples_received);    		
-    	}*/
-
 	    gst_buffer_unmap(buffer,&map);
 	    gst_sample_unref(sample);
 	}

@@ -17,9 +17,10 @@ class Streamer {
 		std::set<uint> refcode_keys;
 		GMainLoop *mainloop;
 		bool run_mode;
-		uint samples_received;
+		int samples_received;
+		const char* command;
 
-		Streamer(const char* url, GMainLoop *loop, bool mode); // mode = true is used to index the song, mode is false is used to listen based on data
+		Streamer(const char* url, GMainLoop *loop, bool mode, const char* cmd); // mode = true is used to index the song, mode is false is used to listen based on data
 		~Streamer(void);
 		static gboolean bus_callback(GstBus *bus, GstMessage *message, gpointer data);
 		static void pad_callback(GstElement *element, GstPad *pad, gpointer data);
