@@ -9,6 +9,8 @@ This will create a ref_fingerprint.dat in your pwd. Then just run this to start 
 
 Notes:
 - You'll probably want to modify the buffersize (buffer that is matched to the audio fingerpint), updaterate (how often the fingerprints are compared) and minimum_rate (how many codes need to match at a minimum to match)
-- I am currently logging the PCM data of the buffer to disk when a match has been found for diagnostics
 - I am are only using the codes, not the frames from echoprint. Accuracy can be increased by using the frames and alignment as well.
 - Echoprint has been slightly modified to not compress the fingerprints since that is not needed for my use case. You can find this fork [here](https://github.com/ThomasColliers/echoprint-codegen).
+
+Todo:
+- Log the PCM data buffer when a match has been found for diagnostics

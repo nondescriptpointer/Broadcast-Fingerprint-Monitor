@@ -19,6 +19,7 @@ class Streamer {
 		bool run_mode;
 		int samples_received;
 		const char* command;
+		const char* uri;
 
 		Streamer(const char* url, GMainLoop *loop, bool mode, const char* cmd); // mode = true is used to index the song, mode is false is used to listen based on data
 		~Streamer(void);

@@ -17,6 +17,7 @@ Streamer::Streamer(const char* url, GMainLoop *loop, bool mode, const char *cmd)
 	mainloop = loop;
 	run_mode = mode;
 	command = cmd;
+	uri = url;
 
 	// read the file with the data
 	if(!run_mode){
