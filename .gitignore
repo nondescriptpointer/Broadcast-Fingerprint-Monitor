@@ -1,3 +1,4 @@
 *.swp
 build/
 monitor
+ref_fingerprint.dat

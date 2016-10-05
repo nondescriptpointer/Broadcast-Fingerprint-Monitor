@@ -1,34 +1,49 @@
 #include "Streamer.h"
 #include <iostream>
 #include <cstring>
-
-// should I use the playbin and/or uridecodebin, appsink? should be in base plugins
-// autoaudiosink
-// it's possible to have a handler on a smaller level
-// our handler is static right now which limits our ability to use the current state?
+#include <Codegen.h>
+#include <string>
+#include <fstream>
 
 /*
-  source   = gst_element_factory_make ("filesrc",       "file-source");
-  demuxer  = gst_element_factory_make ("oggdemux",      "ogg-demuxer");
-  decoder  = gst_element_factory_make ("vorbisdec",     "vorbis-decoder");
-  conv     = gst_element_factory_make ("audioconvert",  "converter");
-  sink     = gst_element_factory_make ("autoaudiosink", "audio-output");
-
-  need to convert it to floating point PCM at 11025Hz and mono
-
-  apsink in combination with the caps to specify the format
-
-  if the sample rate is 11025 we should have roughly 119070 samples collected
+	// todo: test if it works
+	// todo: call into specific script
+	// todo: log the pcm data on match so it can be checked later on accuracy
+	// todo: find distance difference between the 2 files if needed
 */
 
-Streamer::Streamer(void){
+Streamer::Streamer(const char* url, GMainLoop *loop, bool mode){
+	// ref to mainloop
+	mainloop = loop;
+	run_mode = mode;
+
+	// read the file with the data
+	if(!run_mode){
+		// check size first
+	    std::ifstream fcheck("ref_fingerprint.dat", std::ifstream::ate | std::ifstream::binary);
+	    int filesize = fcheck.tellg();
+	    fcheck.close();
+	    
+	    // read the file
+		std::ifstream is("ref_fingerprint.dat",std::ios::binary | std::ios::in);
+		uint *data = new uint[filesize/sizeof(uint)];
+		is.read(reinterpret_cast<char*>(data), std::streamsize(filesize));
+		is.close();
+
+		// load codes into our reference vector
+		for(uint i = 0; i < filesize/sizeof(uint)/2; i++){
+			refcodes.push_back(new FPCode(data[i*2],data[i*2+1]));
+			refcode_keys.insert(data[i*2+1]);
+		}
+	}
+
 	// setup pipeline
 	GstElement *pipeline = gst_pipeline_new("radiopipeline");
 
 	// playbin object
 	GstElement *uridecodebin = gst_element_factory_make("uridecodebin","uridecodebin");
-	//g_object_set(G_OBJECT(uridecodebin), "uri", "http://mp3.streampower.be/radio1-high.mp3", NULL);
-	g_object_set(G_OBJECT(uridecodebin), "uri", "file:///home/ego/Downloads/safteyjingle.mp3", NULL);
+	// "http://mp3.streampower.be/radio1-high.mp3" or "file:///home/ego/Downloads/safteyjingle.mp3"
+	g_object_set(G_OBJECT(uridecodebin), "uri", url, NULL);
 
 	// create an audio sink
 	GstElement *convert = gst_element_factory_make("audioconvert","audioconvert");
@@ -42,9 +57,7 @@ Streamer::Streamer(void){
 	g_object_set(G_OBJECT(sink), "emit-signals", TRUE, NULL);
 
 	// listen for new buffer samples
-	int samples = 0;
-	std::cout << &samples << std::endl;
-	g_signal_connect(sink, "new-sample", G_CALLBACK(buffer_callback), &samples);
+	g_signal_connect(sink, "new-sample", G_CALLBACK(buffer_callback), this);
 	
 	// add elements to pipeline
 	gst_bin_add_many(GST_BIN(pipeline), uridecodebin, convert, resample, sink, NULL);
@@ -59,7 +72,7 @@ Streamer::Streamer(void){
 
 	// create a bus to listen to issues
 	GstBus *bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
-	guint bus_watch_id = gst_bus_add_watch(bus,bus_callback,NULL);
+	gst_bus_add_watch(bus,bus_callback,this);
 	gst_object_unref(bus);
 
 	// start playback
@@ -80,6 +93,8 @@ gboolean Streamer::bus_callback(GstBus *bus, GstMessage *message, gpointer data)
 
 	switch (GST_MESSAGE_TYPE (message)){
 	    case GST_MESSAGE_ERROR: {
+	    	Streamer *streamer = static_cast<Streamer*>(data);
+
 			GError *err;
 			gchar *debug;
 
@@ -87,13 +102,55 @@ gboolean Streamer::bus_callback(GstBus *bus, GstMessage *message, gpointer data)
 			g_print ("Error: %s\n", err->message);
 			g_error_free (err);
 			g_free (debug);
-			//g_main_loop_quit (loop);
+
+			// restart, we'll restart the process
+			g_main_loop_quit(streamer->mainloop);
 			break;
 	    }
-	    case GST_MESSAGE_EOS:
-			/* end-of-stream */
-			//g_main_loop_quit (loop);
+	    case GST_MESSAGE_EOS: {
+	    	Streamer *streamer = static_cast<Streamer*>(data);
+
+	    	// if we are scanning file, write it to file
+	    	if(streamer->run_mode){
+	    		// copy the samples into an array
+	    		int numsamples = streamer->samples.size();
+	    		float *data = new float[numsamples];
+	    		std::copy(streamer->samples.begin(),streamer->samples.end(), data);
+
+	    		// do a codegen on the samples
+				Codegen * pCodegen = new Codegen(data, numsamples, 0);
+				std::vector<FPCode> codes = pCodegen->getCodes(); 
+
+				// create data struct of uints twice the size of the file to save
+				uint *savedata = new uint[codes.size()*2];
+				for(uint i = 0; i < codes.size(); i++){
+					savedata[i*2] = codes[i].frame;
+					savedata[i*2+1] = codes[i].code;
+				}
+				// save this data to datafile
+				std::ofstream output("ref_fingerprint.dat", std::ios::binary | std::ios::trunc | std::ios::out);
+				output.write(reinterpret_cast<const char*>(savedata), std::streamsize(codes.size()*2*sizeof(uint)));
+				output.close();
+
+				std::cout << "Succesfully wrote ref_fingerpint.dat" << std::endl;
+
+				// display to check
+				/*std::cout << codes.size() << std::endl;
+				for (uint i = 0; i < codes.size(); i++){
+					std::cout << codes[i].frame << " " << codes[i].code << std::endl;
+				}*/
+
+				// cleanup codegen
+				delete pCodegen;
+
+				// quit the loop
+				g_main_loop_quit (streamer->mainloop);
+			}else{
+				// restart, we'll restart the process to try and reconnect
+				g_main_loop_quit(streamer->mainloop);
+			}
 			break;
+		}
 	    case GST_MESSAGE_STATE_CHANGED: {
 	    	GstState old_state, new_state;
 	    	gst_message_parse_state_changed(message, &old_state, &new_state, NULL);
@@ -110,39 +167,72 @@ gboolean Streamer::bus_callback(GstBus *bus, GstMessage *message, gpointer data)
 
 // buffer callback
 GstFlowReturn Streamer::buffer_callback(GstElement *element, gpointer data){
-	g_print("Got a buffer sample\n");
-
 	GstSample *sample;
 	GstMapInfo map;
 	GstBuffer *buffer;
-	int *num_samples = static_cast<int*>(data);
-	std::cout << *num_samples << std::endl;
+
 	g_signal_emit_by_name(element, "pull-sample", &sample, NULL);
 	if(sample){
+		// get reference to self
+		Streamer *streamer = static_cast<Streamer*>(data);
+
 		buffer = gst_sample_get_buffer(sample);
 		gst_buffer_map (buffer, &map, GST_MAP_READ);
-    	g_print("\n here size=%d\n",map.size);
+
     	// cast our buffer to floats
     	void *ptr = map.data;
     	float *floats = static_cast<float*>(ptr);
-    	// increase number of samples
-    	*num_samples += map.size;
 
-    	// show floats
-    	std::cout << floats[0] << std::endl;
-    	std::cout << floats[1] << std::endl;
-    	std::cout << floats[2] << std::endl;
-    	std::cout << floats[3] << std::endl;
-    	/*
-    	
-    	items = static_cast<float>(map.data);*/
-    	/*std::cout << sizeof(float) << std::endl;
-    	float g;
-    	memcpy(&g, map.data, sizeof(float));
-    	std::cout << g << std::endl;*/
-    	//std::cout << float(map.data) << " " << float(map.data[1]) << std::endl;
-    	// TODO: these are not floats which is an issue
-	    gst_buffer_unmap (buffer,&map);
+    	// update samples received
+    	streamer->samples_received += map.size/4;
+
+    	// add elements to our buffer array
+    	for(uint i = 0; i < map.size/4; i++){
+    		streamer->samples.push_back(floats[i]);
+    	}
+
+    	// if in normal/radio mode
+    	if(!streamer->run_mode){
+    		// make the buffer smaller if it's too big
+    		if(streamer->samples.size() > buffersize){
+    			streamer->samples.erase(streamer->samples.begin(),streamer->samples.begin()+(streamer->samples.size()-buffersize));
+    		}
+
+    		// run the check
+    		if(streamer->samples.size() == buffersize && streamer->samples_received >= updaterate){
+    			streamer->samples_received = 0;
+
+	    		// copy the samples into an array
+	    		int numsamples = streamer->samples.size();
+	    		float *data = new float[numsamples];
+	    		std::copy(streamer->samples.begin(),streamer->samples.end(), data);
+
+	    		// do a codegen on the samples
+				Codegen * pCodegen = new Codegen(data, numsamples, 0);
+				std::vector<FPCode> codes = pCodegen->getCodes(); 
+
+    			// compare with reference map
+				std::set<uint> keys;
+				uint unique_matches = 0;
+				for(std::vector<FPCode>::iterator it = codes.begin(); it != codes.end(); ++it){
+					if(keys.find(it->code) == keys.end() && streamer->refcode_keys.find(it->code) != streamer->refcode_keys.end()){
+						keys.insert(it->code);
+						unique_matches += 1;
+					}
+				}
+				std::cout << "Matches: " << unique_matches << std::endl;
+
+				delete pCodegen;
+				delete data;
+    		}
+    	}
+
+    	/*if(run_mode){
+	    	// copy our data into our temporary buffer
+	    	std::copy(floats, floats+(map.size/4), streamer->samples+streamer->samples_received);    		
+    	}*/
+
+	    gst_buffer_unmap(buffer,&map);
 	    gst_sample_unref(sample);
 	}
 
@@ -158,11 +248,3 @@ void Streamer::pad_callback(GstElement *element, GstPad *pad, gpointer data){
 	gst_pad_link(pad, sinkpad);
 	gst_object_unref(sinkpad);
 }
-
-/* 
-TODO:
-- try and convert it to a float* array with the size of the original divided by 4
-- try and feed it into echoprint codegen and retrieve the full signature
-- compare with the signature created by fastingest or similar tools
-
-*/

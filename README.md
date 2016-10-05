@@ -1,17 +1,14 @@
-Design:
-- Gstreamer to handle incoming stream and convert it to PCM, float, mono 11025 Hz
-- Use Echoprint library to generate our codestring of the target audio
-- Update the codestring as a sliding window if possible, checking the match percentage during each slide
-- The matching should be our own implementation, use echoprint-server as a reference
-- If there is a match, execute script and ignore further matching for a few minutes of stream data is received
-- Handle disconnects and timeouts gracefully by reconnecting automatically
+# Broadcast fingerprint monitor
 
-Todo:
-- Download C++ gstreamer examples (preferably streaming)
+A small C++ program to monitor a radio stream if a specific track or ad is played. It's using gstreamer to pull in the PCM data and echoprint-codegen for fingerprinting.
 
-Matching algorithms:
-- Seems to match number of floating values matching overall (order independent?)
-- Walk through the matching algorithm to make sure what we are doing is correct
+To use, first build a fingerprint of what you want to scan for:
+	monitor build file:///path/to/file.mp3
+Then just run this to start scanning a radio channel
+	monitor scan "http://url-to.com/livestream.mp4" commandtorunwhenfound
 
-Other notes:
-- Use Icecast for the streaming
+Notes:
+- You'll probably want to modify the buffersize (buffer that is matched to the audio fingerpint), updaterate (how often the fingerprints are compared) and minimum_rate (how many codes need to match at a minimum to match)
+- We are currently logging the PCM data to disk when a match has been found for diagnostics
+- I am are only using the codes, not the frames from echoprint. Accuracy can likely be increased by doing this.
+- Echoprint has been slightly modified to not compress the fingerprints since that is not needed for my use case.
