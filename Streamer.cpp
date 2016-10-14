@@ -4,20 +4,23 @@
 #include <Codegen.h>
 #include <string>
 #include <fstream>
+#include <sstream>
+#include <vorbis/vorbisenc.h>
+#include <boost/filesystem.hpp>
+
+using namespace boost::filesystem;
 
 /*
-	// todo: test if it works
-	// todo: call into specific script
-	// todo: log the pcm data on match so it can be checked later on accuracy
 	// todo: find distance difference between the 2 files if needed
 */
 
-Streamer::Streamer(const char* url, GMainLoop *loop, bool mode, const char *cmd){
+Streamer::Streamer(const char* url, GMainLoop *loop, bool mode, const char *cmd, const char* chan){
 	// ref to mainloop
 	mainloop = loop;
 	run_mode = mode;
 	command = cmd;
 	uri = url;
+    channel_id = chan;
 
 	// read the file with the data
 	if(!run_mode){
@@ -227,6 +230,103 @@ GstFlowReturn Streamer::buffer_callback(GstElement *element, gpointer data){
 					std::cout << "Got a match! " << unique_matches << std::endl;
 					// offset the received samples so we stop checking for a while
 					streamer->samples_received = -streamer->updaterate * 15;
+
+                    // ogg encoding
+                    int eos = 0;
+
+                    // output file
+                    std::string outputdir("audiologs/");
+                    std::string subfolder(streamer->channel_id);
+                    path targetpath(outputdir+subfolder);
+                    // create directory if it does not exist
+                    if(!is_directory(targetpath)){
+                        create_directories(targetpath);
+                    }
+                    // count number of files in directory
+                    int count = 0;
+                    for(directory_iterator it(targetpath); it != directory_iterator(); ++it){
+                        count += 1;
+                    }
+                    // set up new directory
+                    std::stringstream ss;
+                    ss << count << ".ogg";
+                    targetpath /= path(ss.str());
+                    
+                    //targetpath /= path("")
+                    FILE* output = fopen(targetpath.string().c_str(),"wb");
+
+                    // write the current buffer to a file
+                    ogg_stream_state os; // takes physical pages, weld into logical stream of packets
+                    ogg_page og; // ogg bitstream page, vorbis packets are inside
+                    ogg_packet op; // raw packet of data for decode
+                    vorbis_info vi; // struct that stores static vorbis bitstream settings
+                    vorbis_comment vc; // struct that stores user comments
+                    vorbis_dsp_state vd; // central working state for the packet->PCM decoder
+                    vorbis_block vb; // local working space for packet->PCM decode
+
+                    /* encode setup */
+                    vorbis_info_init(&vi);
+                    int ret = vorbis_encode_init_vbr(&vi,1,streamer->updaterate,0.1);
+                    if(ret){
+                        std::cerr << "Vorbis encoder creation failed." << std::endl;
+                        exit(1);
+                    }
+                    // add comment
+                    vorbis_comment_init(&vc);
+                    vorbis_comment_add_tag(&vc,"ENCODER","Streamer");
+                    // set up analysis state and auxiliary encoding storage
+                    vorbis_analysis_init(&vd,&vi);
+                    vorbis_block_init(&vd,&vb);
+                    // set up packet->stream encoder, pick random serial number so we are more likely to build chained streams just by concatenation
+                    srand(time(NULL));
+                    ogg_stream_init(&os,rand());
+                    // headers
+                    {
+                        ogg_packet header;
+                        ogg_packet header_comm;
+                        ogg_packet header_code;
+                        vorbis_analysis_headerout(&vd,&vc,&header,&header_comm,&header_code);
+                        ogg_stream_packetin(&os,&header);
+                        ogg_stream_packetin(&os,&header_comm);
+                        ogg_stream_packetin(&os,&header_code);
+                        // ensures actual audio data will start on a new page as per the spec
+                        while(!eos){
+                            int result = ogg_stream_flush(&os,&og);
+                            if(result == 0) break;
+                            fwrite(og.header,1,og.header_len,output);
+                            fwrite(og.body,1,og.body_len,output);
+                        }
+                    }
+                    {
+                        long i;
+                        float **buffer = vorbis_analysis_buffer(&vd,numsamples);
+                        for(i = 0; i < numsamples; i++){
+                            buffer[0][i] = data[i];
+                        }
+                        vorbis_analysis_wrote(&vd,i);
+                        // vorbis does some data preanalysis, then divvies up blocks for more involved processing
+                        while(vorbis_analysis_blockout(&vd,&vb)==1){
+                            vorbis_analysis(&vb,NULL);
+                            vorbis_bitrate_addblock(&vb);
+                            while(vorbis_bitrate_flushpacket(&vd,&op)){
+                                ogg_stream_packetin(&os,&op);
+                                while(!eos){
+                                    int result = ogg_stream_pageout(&os,&og);
+                                    if(result == 0) break;
+                                    fwrite(og.header,1,og.header_len,output);
+                                    fwrite(og.body,1,og.body_len,output);
+                                    if(ogg_page_eos(&og)) eos = 1;
+                                }
+                            }
+                        }
+                    }
+                    ogg_stream_clear(&os);
+                    vorbis_block_clear(&vb);
+                    vorbis_dsp_clear(&vd);
+                    vorbis_comment_clear(&vc);
+                    vorbis_info_clear(&vi);
+                    fclose(output);
+
 					// run command
 					FILE *in;
 					char buff[512];

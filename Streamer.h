@@ -20,8 +20,9 @@ class Streamer {
 		int samples_received;
 		const char* command;
 		const char* uri;
+        const char* channel_id;
 
-		Streamer(const char* url, GMainLoop *loop, bool mode, const char* cmd); // mode = true is used to index the song, mode is false is used to listen based on data
+		Streamer(const char* url, GMainLoop *loop, bool mode, const char* cmd, const char* chan); // mode = true is used to index the song, mode is false is used to listen based on data
 		~Streamer(void);
 		static gboolean bus_callback(GstBus *bus, GstMessage *message, gpointer data);
 		static void pad_callback(GstElement *element, GstPad *pad, gpointer data);

@@ -24,8 +24,8 @@ int main(int argc, char *argv[]){
     mainloop = g_main_loop_new(NULL,FALSE);
 
     // check argc
-    if(argc < 3){
-    	std::cout << "Usage: monitor [build/scan] [local or remote url] [command to run when found]" << std::endl;
+    if(argc < 4){
+    	std::cout << "Usage: monitor [build/scan] [local or remote url] [channel id] [command to run when found]" << std::endl;
     	return 1;
     }
 
@@ -39,16 +39,16 @@ int main(int argc, char *argv[]){
 
     // convert rest to 
     const char* command = "";
-    if(argc > 3){
+    if(argc > 4){
         std::stringstream ss;
-        for(int i = 3; i < argc; i++){
+        for(int i = 4; i < argc; i++){
             ss << argv[i] << " ";
         }
         command = ss.str().c_str();
     }
 
     // set up the streamer
-    Streamer* streamer = new Streamer(argv[2],mainloop,mode,command);
+    Streamer* streamer = new Streamer(argv[2],mainloop,mode,command,argv[3]);
 
     // run main loop
     g_main_loop_run(mainloop);  
